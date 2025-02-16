@@ -5,6 +5,7 @@ import (
 	"crypto/x509"
 	"log"
 	"net/url"
+	"os"
 	"strings"
 
 	"github.com/joeshaw/envdecode"
@@ -17,8 +18,10 @@ type KafkaConfig struct {
 	ClientCertKey string `env:"KAFKA_CLIENT_CERT_KEY,required"`
 	ClientCert    string `env:"KAFKA_CLIENT_CERT,required"`
 	Prefix        string `env:"KAFKA_PREFIX"`
-	Topic         string `env:"KAFKA_TOPIC,default=messages"`
-	ConsumerGroup string `env:"KAFKA_CONSUMER_GROUP,default=heroku-kafka-demo-go"`
+	Topic         string `env:"KAFKA_TOPIC,default=stock-updates"`
+	ProducerTopic string `env:"KAFKA_PROD_TOPIC,default=low-stock-alerts"`
+	ConsumerGroup string `env:"KAFKA_CONSUMER_GROUP,default=wms"`
+	SkipTLS       bool
 }
 
 // WebConfig is the configuration for the web server
@@ -39,6 +42,10 @@ func NewAppConfig() (*AppConfig, error) {
 	err := envdecode.Decode(cfg)
 	if err != nil {
 		return nil, err
+	}
+
+	if os.Getenv("KAFKA_ENV") == "dev" {
+		cfg.Kafka.SkipTLS = true
 	}
 
 	return cfg, nil
@@ -88,6 +95,17 @@ func (ac *AppConfig) BrokerAddresses() []string {
 // Topic returns the Kafka topic to use
 func (ac *AppConfig) Topic() string {
 	topic := ac.Kafka.Topic
+
+	if ac.Kafka.Prefix != "" {
+		topic = ac.Kafka.Prefix + topic
+	}
+
+	return topic
+}
+
+// ProducerTopic returns the Kafka Producer topic to send messages to
+func (ac *AppConfig) ProducerTopic() string {
+	topic := ac.Kafka.ProducerTopic
 
 	if ac.Kafka.Prefix != "" {
 		topic = ac.Kafka.Prefix + topic

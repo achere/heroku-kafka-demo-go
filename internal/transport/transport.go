@@ -60,10 +60,13 @@ func (mb *MessageBuffer) SaveMessage(msg Message) {
 	mb.receivedMessages = append(mb.receivedMessages, msg)
 }
 
+type MessageHandlerFunc func(*sarama.ConsumerMessage)
+
 // MessageHandler is a Sarama consumer group handler
 type MessageHandler struct {
-	Ready  chan bool
-	buffer *MessageBuffer
+	Ready         chan bool
+	buffer        *MessageBuffer
+	handleMessage MessageHandlerFunc
 }
 
 // Setup is run at the beginning of a new session, before ConsumeClaim
@@ -101,6 +104,7 @@ func (c *MessageHandler) ConsumeClaim(session sarama.ConsumerGroupSession, claim
 			}
 
 			c.saveMessage(msg)
+			c.handleMessage(msg)
 			session.MarkMessage(msg, "")
 		case <-session.Context().Done():
 			return nil
@@ -109,10 +113,11 @@ func (c *MessageHandler) ConsumeClaim(session sarama.ConsumerGroupSession, claim
 }
 
 // NewMessageHandler creates a new MessageHandler
-func NewMessageHandler(buffer *MessageBuffer) *MessageHandler {
+func NewMessageHandler(buffer *MessageBuffer, handler MessageHandlerFunc) *MessageHandler {
 	return &MessageHandler{
-		Ready:  make(chan bool),
-		buffer: buffer,
+		Ready:         make(chan bool),
+		buffer:        buffer,
+		handleMessage: handler,
 	}
 }
 
@@ -127,9 +132,11 @@ func CreateKafkaAsyncProducer(ac *config.AppConfig) (sarama.AsyncProducer, error
 	kafkaConfig.Producer.Flush.Frequency = flushFrequency
 	kafkaConfig.ClientID = "heroku-kafka-demo-go/asyncproducer"
 
-	tlsConfig := ac.CreateTLSConfig()
-	kafkaConfig.Net.TLS.Enable = true
-	kafkaConfig.Net.TLS.Config = tlsConfig
+	if !ac.Kafka.SkipTLS {
+		tlsConfig := ac.CreateTLSConfig()
+		kafkaConfig.Net.TLS.Enable = true
+		kafkaConfig.Net.TLS.Config = tlsConfig
+	}
 
 	err := kafkaConfig.Validate()
 	if err != nil {
@@ -153,9 +160,11 @@ func CreateKafkaProducer(ac *config.AppConfig) (sarama.SyncProducer, error) {
 	kafkaConfig.Producer.Compression = sarama.CompressionZSTD
 	kafkaConfig.ClientID = "heroku-kafka-demo-go/producer"
 
-	tlsConfig := ac.CreateTLSConfig()
-	kafkaConfig.Net.TLS.Enable = true
-	kafkaConfig.Net.TLS.Config = tlsConfig
+	if !ac.Kafka.SkipTLS {
+		tlsConfig := ac.CreateTLSConfig()
+		kafkaConfig.Net.TLS.Enable = true
+		kafkaConfig.Net.TLS.Config = tlsConfig
+	}
 
 	err := kafkaConfig.Validate()
 	if err != nil {
@@ -173,9 +182,12 @@ func CreateKafkaProducer(ac *config.AppConfig) (sarama.SyncProducer, error) {
 // CreateKafkaConsumer creates a new Sarama ConsumerGroup
 func CreateKafkaConsumer(ac *config.AppConfig) (sarama.ConsumerGroup, error) {
 	kafkaConfig := sarama.NewConfig()
-	tlsConfig := ac.CreateTLSConfig()
-	kafkaConfig.Net.TLS.Enable = true
-	kafkaConfig.Net.TLS.Config = tlsConfig
+
+	if !ac.Kafka.SkipTLS {
+		tlsConfig := ac.CreateTLSConfig()
+		kafkaConfig.Net.TLS.Enable = true
+		kafkaConfig.Net.TLS.Config = tlsConfig
+	}
 
 	kafkaConfig.Consumer.Group.Rebalance.GroupStrategies = []sarama.BalanceStrategy{sarama.NewBalanceStrategyRoundRobin()}
 	kafkaConfig.ClientID = "heroku-kafka-demo-go/consumer"
@@ -204,15 +216,17 @@ type KafkaClient struct {
 
 // NewKafkaClient creates a new KafkaClient
 func NewKafkaClient(ac *config.AppConfig) (*KafkaClient, error) {
-	tlsConfig := ac.CreateTLSConfig()
+	if !ac.Kafka.SkipTLS {
+		tlsConfig := ac.CreateTLSConfig()
 
-	ok, err := verifyBrokers(tlsConfig, ac.Kafka.TrustedCert, ac.BrokerAddresses())
-	if err != nil {
-		return nil, err
-	}
+		ok, err := verifyBrokers(tlsConfig, ac.Kafka.TrustedCert, ac.BrokerAddresses())
+		if err != nil {
+			return nil, err
+		}
 
-	if !ok {
-		return nil, errors.New("unable to verify brokers")
+		if !ok {
+			return nil, errors.New("unable to verify brokers")
+		}
 	}
 
 	producer, err := CreateKafkaProducer(ac)
