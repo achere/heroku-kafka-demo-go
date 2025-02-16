@@ -31,8 +31,9 @@ type WebConfig struct {
 
 // AppConfig is the configuration for the application
 type AppConfig struct {
-	Kafka KafkaConfig
-	Web   WebConfig
+	Kafka       KafkaConfig
+	Web         WebConfig
+	DatabaseURL string `env:"DATABASE_URL,required"`
 }
 
 // NewAppConfig returns a new AppConfig

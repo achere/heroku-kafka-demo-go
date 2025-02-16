@@ -12,8 +12,8 @@ import (
 	"time"
 
 	"github.com/IBM/sarama"
+	"github.com/achere/heroku-kafka-demo-go/internal/config"
 	"github.com/gin-gonic/gin"
-	"github.com/heroku/heroku-kafka-demo-go/internal/config"
 )
 
 // Message represents a Kafka message
@@ -60,7 +60,7 @@ func (mb *MessageBuffer) SaveMessage(msg Message) {
 	mb.receivedMessages = append(mb.receivedMessages, msg)
 }
 
-type MessageHandlerFunc func(*sarama.ConsumerMessage)
+type MessageHandlerFunc func(*sarama.ConsumerMessage) error
 
 // MessageHandler is a Sarama consumer group handler
 type MessageHandler struct {
@@ -104,8 +104,16 @@ func (c *MessageHandler) ConsumeClaim(session sarama.ConsumerGroupSession, claim
 			}
 
 			c.saveMessage(msg)
-			c.handleMessage(msg)
-			session.MarkMessage(msg, "")
+			err := c.handleMessage(msg)
+			if err != nil {
+				slog.Error("error processing msg",
+					"err", err,
+					"timestamp", msg.Timestamp,
+					"val", sarama.StringEncoder(msg.Value),
+				)
+			} else {
+				session.MarkMessage(msg, "")
+			}
 		case <-session.Context().Done():
 			return nil
 		}

@@ -1,0 +1,2 @@
+DELETE FROM products CASCADE;
+DELETE FROM warehouses CASCADE;
