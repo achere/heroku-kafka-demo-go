@@ -34,6 +34,7 @@ type AppConfig struct {
 	Kafka       KafkaConfig
 	Web         WebConfig
 	DatabaseURL string `env:"DATABASE_URL,required"`
+	RedisURL    string `env:"REDIS_URL,required"`
 }
 
 // NewAppConfig returns a new AppConfig

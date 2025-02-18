@@ -10,9 +10,11 @@ import (
 
 	"github.com/IBM/sarama"
 	"github.com/achere/heroku-kafka-demo-go/internal/config"
+	"github.com/achere/heroku-kafka-demo-go/internal/inventory"
 	"github.com/achere/heroku-kafka-demo-go/internal/transport"
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/redis/go-redis/v9"
 )
 
 const (
@@ -84,6 +86,19 @@ func main() {
 	slog.Info("db connected")
 	defer db.Close()
 
+	opts, err := redis.ParseURL(appconfig.RedisURL)
+	if err != nil {
+		slog.Error("error parsing Redis URL", "err", err)
+	}
+
+	rdb := redis.NewClient(opts)
+
+	_, err = rdb.Ping(ctx).Result()
+	if err != nil {
+		slog.Error("could not connect to Redis", "err", err)
+	}
+	slog.Info("redis connected")
+
 	client, err := transport.NewKafkaClient(appconfig)
 	if err != nil {
 		log.Fatal(err)
@@ -98,7 +113,7 @@ func main() {
 		appconfig,
 		client,
 		db,
-		newCachePlaceholder(),
+		inventory.NewRedisCache(rdb),
 	))
 
 	go client.ConsumeMessages(ctx, []string{topic}, consumerHandler)
