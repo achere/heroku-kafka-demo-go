@@ -88,8 +88,8 @@ func newStockUpdateHandler(
 
 			topic := appconfig.ProducerTopic()
 			value := sarama.ByteEncoder(alertMessage)
-			err = client.SendMessage(topic, "", value)
 
+			err = client.SendMessage(topic, "", value)
 			if err != nil {
 				return fmt.Errorf("error sending low-stock alert: %v", err)
 			} else {
