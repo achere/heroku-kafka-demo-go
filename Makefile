@@ -13,10 +13,11 @@ test:
 .PHONY: test
 
 dev:
+	PORT=4020 \
+	DATABASE_URL=postgres://root:secret@localhost:5432/wms?sslmode=disable \
 	KAFKA_URL=PLAINTEXT://localhost:9092 \
 	KAFKA_ENV=dev \
 	KAFKA_PREFIX=wms_ \
-	PORT=4020 \
 	KAFKA_TRUSTED_CERT=placeholder \
 	KAFKA_CLIENT_CERT=placeholder \
 	KAFKA_CLIENT_CERT_KEY=placeholder \

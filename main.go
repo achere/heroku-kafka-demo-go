@@ -9,9 +9,10 @@ import (
 	"time"
 
 	"github.com/IBM/sarama"
+	"github.com/achere/heroku-kafka-demo-go/internal/config"
+	"github.com/achere/heroku-kafka-demo-go/internal/transport"
 	"github.com/gin-gonic/gin"
-	"github.com/heroku/heroku-kafka-demo-go/internal/config"
-	"github.com/heroku/heroku-kafka-demo-go/internal/transport"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 const (
@@ -76,6 +77,13 @@ func main() {
 		"prefix:", appconfig.Kafka.Prefix,
 	)
 
+	db, err := pgxpool.New(ctx, appconfig.DatabaseURL)
+	if err != nil {
+		slog.Error("error connecting to db", "err", err)
+	}
+	slog.Info("db connected")
+	defer db.Close()
+
 	client, err := transport.NewKafkaClient(appconfig)
 	if err != nil {
 		log.Fatal(err)
@@ -85,16 +93,13 @@ func main() {
 	buffer := transport.MessageBuffer{
 		MaxSize: MaxBufferSize,
 	}
-	consumerHandler := transport.NewMessageHandler(&buffer, func(cm *sarama.ConsumerMessage) {
-		slog.Info(
-			"handling msg",
-			"topic", cm.Topic,
-			"key", cm.Key,
-			"value", cm.Value,
-		)
-
-		client.SendMessage(appconfig.ProducerTopic(), "", sarama.ByteEncoder("LOW STOCK!!1"))
-	})
+	consumerHandler := transport.NewMessageHandler(&buffer, newStockUpdateHandler(
+		ctx,
+		appconfig,
+		client,
+		db,
+		newCachePlaceholder(),
+	))
 
 	go client.ConsumeMessages(ctx, []string{topic}, consumerHandler)
 

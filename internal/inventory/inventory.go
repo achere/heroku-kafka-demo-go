@@ -1,0 +1,171 @@
+package inventory
+
+import (
+	"context"
+	"fmt"
+	"log"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/achere/heroku-kafka-demo-go/db/sqlc"
+)
+
+type inventoryStore interface {
+	inventoryGetter
+	UpdateInventory(ctx context.Context, arg db.UpdateInventoryParams) error
+	InsertStockLog(ctx context.Context, arg db.InsertStockLogParams) error
+}
+
+type inventoryGetter interface {
+	GetInventory(ctx context.Context, arg db.GetInventoryParams) (db.GetInventoryRow, error)
+}
+
+type Cache interface {
+	Get(ctx context.Context, key string) (string, error)
+	Set(ctx context.Context, key, value string, expiration time.Duration) error
+}
+
+// UpdateInventory function takes product and warehouse IDs along with the stock delta, updates the
+// stock if possible and returns the updated stock along with the threshold for low stock alert
+func UpdateInventory(
+	productID int,
+	warehouseID int,
+	stockDelta int,
+	store inventoryStore,
+	ctx context.Context,
+	c Cache,
+) (int, int, error) {
+	var stock, threshold int
+
+	whID := int32(warehouseID)
+	prodID := int32(productID)
+
+	cacheKey := fmt.Sprintf("%d:%d", whID, prodID)
+
+	stock, threshold, ok := getInvFromCache(ctx, c, cacheKey)
+
+	if !ok {
+		inv, err := store.GetInventory(
+			ctx,
+			db.GetInventoryParams{
+				WarehouseID: whID,
+				ProductID:   prodID,
+			},
+		)
+		if err != nil {
+			return 0, 0, err
+		}
+		log.Printf("Got from db %v", inv)
+
+		stock = int(inv.StockLevel)
+		threshold = int(inv.AlertThreshold)
+	}
+
+	newStock := stock + stockDelta
+	if newStock < 0 {
+		return 0, 0, fmt.Errorf("applying delta %d to stock %d would make it negative", stockDelta, stock)
+	}
+
+	log.Printf("Saving new stock: %v", newStock)
+	updStock := int32(newStock)
+	err := store.UpdateInventory(
+		ctx,
+		db.UpdateInventoryParams{
+			StockLevel:  updStock,
+			WarehouseID: whID,
+			ProductID:   prodID,
+		},
+	)
+	if err != nil {
+		return 0, 0, err
+	}
+
+	err = c.Set(ctx, cacheKey, fmt.Sprintf("%d,%d", newStock, threshold), 0)
+	if err != nil {
+		log.Printf("Couldn't set cache: %v", err)
+	}
+
+	err = store.InsertStockLog(
+		ctx,
+		db.InsertStockLogParams{
+			PreviousStock: int32(stock),
+			UpdatedStock:  updStock,
+			WarehouseID:   whID,
+			ProductID:     prodID,
+		},
+	)
+	if err != nil {
+		return 0, 0, err
+	}
+
+	return newStock, threshold, nil
+}
+
+// FetchInventory function takes product and warehouse IDs as a paramater and returns matching stock
+func FetchInventory(
+	productID int,
+	warehouseID int,
+	store inventoryGetter,
+	ctx context.Context,
+	c Cache,
+) (int, error) {
+	cacheKey := fmt.Sprintf("%d:%d", warehouseID, productID)
+	stock, threshold, ok := getInvFromCache(ctx, c, cacheKey)
+
+	if !ok {
+		inv, err := store.GetInventory(
+			ctx,
+			db.GetInventoryParams{
+				WarehouseID: int32(warehouseID),
+				ProductID:   int32(productID),
+			},
+		)
+		if err != nil {
+			return 0, err
+		}
+		log.Printf("Got from db %v", inv)
+
+		stock = int(inv.StockLevel)
+		threshold = int(inv.AlertThreshold)
+	}
+
+	err := c.Set(ctx, cacheKey, fmt.Sprintf("%d,%d", stock, threshold), 0)
+	if err != nil {
+		log.Printf("Couldn't set cache: %v", err)
+	}
+
+	return stock, nil
+}
+
+func getInvFromCache(ctx context.Context, c Cache, key string) (int, int, bool) {
+	cacheValid := false
+	var stock, threshold int
+	invCached, err := c.Get(ctx, key)
+	if err != nil {
+		log.Printf("Couldn't get from cache: %v", err)
+	}
+	log.Printf("Got from cache: %v", invCached)
+
+	if invCached != "" {
+		vals := strings.Split(invCached, ",")
+		if len(vals) != 2 {
+			log.Printf("Invalid cache format")
+			return 0, 0, false
+		}
+
+		cachedStock, errStock := strconv.Atoi(vals[0])
+		cachedThreshold, errThresh := strconv.Atoi(vals[1])
+
+		if errStock != nil && errThresh != nil {
+			log.Printf("Invalid cache format")
+			return 0, 0, false
+		} else {
+			cacheValid = true
+			stock, threshold = cachedStock, cachedThreshold
+			log.Printf("Returning from cache: %v, %v", stock, threshold)
+		}
+	}
+
+	return stock, threshold, cacheValid
+}
