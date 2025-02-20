@@ -85,7 +85,16 @@ func main() {
 	buffer := transport.MessageBuffer{
 		MaxSize: MaxBufferSize,
 	}
-	consumerHandler := transport.NewMessageHandler(&buffer)
+	consumerHandler := transport.NewMessageHandler(&buffer, func(cm *sarama.ConsumerMessage) {
+		slog.Info(
+			"handling msg",
+			"topic", cm.Topic,
+			"key", cm.Key,
+			"value", cm.Value,
+		)
+
+		client.SendMessage(appconfig.ProducerTopic(), "", sarama.ByteEncoder("LOW STOCK!!1"))
+	})
 
 	go client.ConsumeMessages(ctx, []string{topic}, consumerHandler)
 
