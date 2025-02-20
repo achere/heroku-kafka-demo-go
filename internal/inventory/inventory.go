@@ -3,7 +3,7 @@ package inventory
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"strconv"
 	"strings"
 	"time"
@@ -56,7 +56,7 @@ func UpdateInventory(
 		if err != nil {
 			return 0, 0, err
 		}
-		log.Printf("Got from db %v", inv)
+		slog.Info("db get", "at", "inventory", "query", "GetInventory", "value", fmt.Sprintf("%v", inv))
 
 		stock = int(inv.StockLevel)
 		threshold = int(inv.AlertThreshold)
@@ -67,7 +67,7 @@ func UpdateInventory(
 		return 0, 0, fmt.Errorf("applying delta %d to stock %d would make it negative", stockDelta, stock)
 	}
 
-	log.Printf("Saving new stock: %v", newStock)
+	slog.Info("db dml", "at", "inventory", "action", "UpdateInvenotry", "value", newStock)
 	updStock := int32(newStock)
 	err := store.UpdateInventory(
 		ctx,
@@ -81,9 +81,12 @@ func UpdateInventory(
 		return 0, 0, err
 	}
 
-	err = c.Set(ctx, cacheKey, fmt.Sprintf("%d,%d", newStock, threshold), 0)
+	cacheVal := fmt.Sprintf("%d,%d", newStock, threshold)
+	err = c.Set(ctx, cacheKey, cacheVal, 0)
 	if err != nil {
-		log.Printf("Couldn't set cache: %v", err)
+		slog.Error("cache set err", "at", "inventory", "err", err)
+	} else {
+		slog.Info("cache set", "at", "inventory", "key", cacheKey, "value", cacheVal)
 	}
 
 	err = store.InsertStockLog(
@@ -124,15 +127,18 @@ func FetchInventory(
 		if err != nil {
 			return 0, err
 		}
-		log.Printf("Got from db %v", inv)
+		slog.Info("db get", "at", "inventory", "query", "GetInventory", "value", fmt.Sprintf("%v", inv))
 
 		stock = int(inv.StockLevel)
 		threshold = int(inv.AlertThreshold)
 	}
 
-	err := c.Set(ctx, cacheKey, fmt.Sprintf("%d,%d", stock, threshold), 0)
+	cacheVal := fmt.Sprintf("%d,%d", stock, threshold)
+	err := c.Set(ctx, cacheKey, cacheVal, 0)
 	if err != nil {
-		log.Printf("Couldn't set cache: %v", err)
+		slog.Error("cache set err", "at", "inventory", "err", err)
+	} else {
+		slog.Info("cache set", "at", "inventory", "key", cacheKey, "value", cacheVal)
 	}
 
 	return stock, nil
@@ -143,14 +149,14 @@ func getInvFromCache(ctx context.Context, c Cache, key string) (int, int, bool) 
 	var stock, threshold int
 	invCached, err := c.Get(ctx, key)
 	if err != nil {
-		log.Printf("Couldn't get from cache: %v", err)
+		slog.Error("cache get err", "at", "inventory", "err", err)
 	}
-	log.Printf("Got from cache: %v", invCached)
+	slog.Info("cache get", "at", "inventory", "value", invCached)
 
 	if invCached != "" {
 		vals := strings.Split(invCached, ",")
 		if len(vals) != 2 {
-			log.Printf("Invalid cache format")
+			slog.Error("cache parse err", "at", "inventory", "err", "invalid cache format")
 			return 0, 0, false
 		}
 
@@ -158,12 +164,11 @@ func getInvFromCache(ctx context.Context, c Cache, key string) (int, int, bool) 
 		cachedThreshold, errThresh := strconv.Atoi(vals[1])
 
 		if errStock != nil && errThresh != nil {
-			log.Printf("Invalid cache format")
+			slog.Error("cache parse err", "at", "inventory", "err", "invalid cache format")
 			return 0, 0, false
 		} else {
 			cacheValid = true
 			stock, threshold = cachedStock, cachedThreshold
-			log.Printf("Returning from cache: %v, %v", stock, threshold)
 		}
 	}
 

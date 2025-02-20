@@ -15,6 +15,7 @@ test:
 dev:
 	PORT=4020 \
 	DATABASE_URL=postgres://root:secret@localhost:5432/wms?sslmode=disable \
+	REDIS_URL=redis://localhost:6379 \
 	KAFKA_URL=PLAINTEXT://localhost:9092 \
 	KAFKA_ENV=dev \
 	KAFKA_PREFIX=wms_ \
