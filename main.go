@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"crypto/tls"
+	"fmt"
 	"log"
 	"log/slog"
 	"net/http"
@@ -11,10 +12,11 @@ import (
 	"time"
 
 	"github.com/IBM/sarama"
+	sqlc "github.com/achere/heroku-kafka-demo-go/db/sqlc"
+	"github.com/achere/heroku-kafka-demo-go/internal/api"
 	"github.com/achere/heroku-kafka-demo-go/internal/config"
 	"github.com/achere/heroku-kafka-demo-go/internal/inventory"
 	"github.com/achere/heroku-kafka-demo-go/internal/transport"
-	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 )
@@ -23,37 +25,6 @@ const (
 	// MaxBufferSize is the maximum number of messages to keep in the buffer
 	MaxBufferSize = 10
 )
-
-type IndexHandler struct {
-	Topic string
-}
-
-func (i *IndexHandler) GetIndex(c *gin.Context) {
-	h := gin.H{
-		"baseurl": "https://" + c.Request.Host,
-		"topic":   i.Topic,
-	}
-	c.HTML(http.StatusOK, "index.tmpl.html", h)
-}
-
-func slogger() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		start := time.Now()
-		path := c.Request.URL.Path
-
-		c.Next()
-
-		slog.Info(
-			"request",
-			"method", c.Request.Method,
-			"ip", c.ClientIP(),
-			"ua", c.Request.UserAgent(),
-			"path", path,
-			"status", c.Writer.Status(),
-			"duration_ms", time.Since(start).Milliseconds(),
-		)
-	}
-}
 
 func main() {
 	if os.Getenv("KAFKA_DEBUG") != "" {
@@ -67,15 +38,17 @@ func main() {
 		slog.Error(
 			"error loading config",
 			"at", "main",
-			"error", err,
+			"err", err,
 		)
 	}
+
+	port := appconfig.Web.Port
 
 	slog.Info(
 		"starting up",
 		"at", "main",
 		"topic", appconfig.Topic(),
-		"port", appconfig.Web.Port,
+		"port", port,
 		"consumer_group", appconfig.Group(),
 		"broker_addresses", appconfig.BrokerAddresses(),
 		"prefix:", appconfig.Kafka.Prefix,
@@ -97,7 +70,7 @@ func main() {
 		}
 	}
 	if err != nil {
-		slog.Error("error parsing Redis URL", "err", err)
+		slog.Error("error parsing Redis URL", "at", "main", "err", err)
 	}
 
 	rdb := redis.NewClient(opts)
@@ -145,22 +118,19 @@ func main() {
 		"duration_ms", time.Since(start).Milliseconds(),
 	)
 
-	router := gin.New()
-	router.Use(slogger())
-	router.LoadHTMLGlob("templates/*.tmpl.html")
-	router.Static("/public", "public")
+	inventoryHandler := api.NewInventoryHandler(sqlc.New(db), rdb)
+	http.HandleFunc("GET /inventory", inventoryHandler.HandleGetInventory)
 
-	ih := &IndexHandler{Topic: topic}
+	server := &http.Server{
+		Addr:         fmt.Sprintf(":%s", port),
+		Handler:      nil,
+		ReadTimeout:  5 * time.Second,
+		WriteTimeout: 10 * time.Second,
+		IdleTimeout:  15 * time.Second,
+	}
 
-	router.GET("/", ih.GetIndex)
-	router.GET("/messages", buffer.GetMessages)
-	router.POST("/messages/:topic", client.PostMessage)
-	router.POST("/async-messages/:topic", client.PostAsyncMessage)
-
-	err = router.Run(":" + appconfig.Web.Port)
-	if err != nil {
-		client.Close()
-		cancel()
+	slog.Info("starting server", "at", "main", "port", port)
+	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatal(err)
 	}
 

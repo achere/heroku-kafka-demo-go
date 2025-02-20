@@ -5,15 +5,12 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"errors"
-	"io"
 	"log/slog"
-	"net/http"
 	"sync"
 	"time"
 
 	"github.com/IBM/sarama"
 	"github.com/achere/heroku-kafka-demo-go/internal/config"
-	"github.com/gin-gonic/gin"
 )
 
 // Message represents a Kafka message
@@ -36,15 +33,6 @@ type MessageBuffer struct {
 	MaxSize          int
 
 	ml sync.RWMutex
-}
-
-// GetMessages returns the messages in the buffer
-// returning it in JSON format
-func (mb *MessageBuffer) GetMessages(c *gin.Context) {
-	mb.ml.RLock()
-	defer mb.ml.RUnlock()
-
-	c.JSON(http.StatusOK, mb.receivedMessages)
 }
 
 // SaveMessage saves a message to the buffer
@@ -286,36 +274,6 @@ func (kc *KafkaClient) SendMessage(topic, key string, message []byte) error {
 	})
 
 	return err
-}
-
-// PostMessage is a handler for POST /messages/:topic
-func (kc *KafkaClient) PostMessage(c *gin.Context) {
-	message, err := io.ReadAll(c.Request.Body)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-
-	err = kc.SendMessage(c.Param("topic"), c.Request.RemoteAddr, message)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-}
-
-// PostAsyncMessage is a handler for POST /async-messages/:topic
-func (kc *KafkaClient) PostAsyncMessage(c *gin.Context) {
-	message, err := io.ReadAll(c.Request.Body)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-
-	err = kc.SendAsyncMessage(c.Param("topic"), c.Request.RemoteAddr, message)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
 }
 
 // ConsumeMessages consumes messages from Kafka

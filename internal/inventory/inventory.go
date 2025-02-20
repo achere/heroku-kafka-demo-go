@@ -56,7 +56,7 @@ func UpdateInventory(
 		if err != nil {
 			return 0, 0, err
 		}
-		slog.Info("db get", "at", "inventory", "query", "GetInventory", "value", fmt.Sprintf("%v", inv))
+		slog.Info("db get", "at", "inventory", "query", "GetInventory", "value", fmt.Sprintf("%+v", inv))
 
 		stock = int(inv.StockLevel)
 		threshold = int(inv.AlertThreshold)
@@ -127,7 +127,7 @@ func FetchInventory(
 		if err != nil {
 			return 0, err
 		}
-		slog.Info("db get", "at", "inventory", "query", "GetInventory", "value", fmt.Sprintf("%v", inv))
+		slog.Info("db get", "at", "inventory", "query", "GetInventory", "value", fmt.Sprintf("%+v", inv))
 
 		stock = int(inv.StockLevel)
 		threshold = int(inv.AlertThreshold)
