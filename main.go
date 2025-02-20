@@ -2,10 +2,12 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"log"
 	"log/slog"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/IBM/sarama"
@@ -82,11 +84,18 @@ func main() {
 	db, err := pgxpool.New(ctx, appconfig.DatabaseURL)
 	if err != nil {
 		slog.Error("error connecting to db", "err", err)
+	} else {
+		slog.Info("db connected")
 	}
-	slog.Info("db connected")
 	defer db.Close()
 
-	opts, err := redis.ParseURL(appconfig.RedisURL)
+	redisUrl := appconfig.RedisURL
+	opts, err := redis.ParseURL(redisUrl)
+	if strings.HasPrefix(redisUrl, "rediss") {
+		opts.TLSConfig = &tls.Config{
+			InsecureSkipVerify: true,
+		}
+	}
 	if err != nil {
 		slog.Error("error parsing Redis URL", "err", err)
 	}
@@ -96,8 +105,9 @@ func main() {
 	_, err = rdb.Ping(ctx).Result()
 	if err != nil {
 		slog.Error("could not connect to Redis", "err", err)
+	} else {
+		slog.Info("redis connected")
 	}
-	slog.Info("redis connected")
 
 	client, err := transport.NewKafkaClient(appconfig)
 	if err != nil {
