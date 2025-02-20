@@ -81,9 +81,12 @@ func UpdateInventory(
 		return 0, 0, err
 	}
 
-	err = c.Set(ctx, cacheKey, fmt.Sprintf("%d,%d", newStock, threshold), 0)
+	cacheVal := fmt.Sprintf("%d,%d", newStock, threshold)
+	err = c.Set(ctx, cacheKey, cacheVal, 0)
 	if err != nil {
 		slog.Error("cache set err", "at", "inventory", "err", err)
+	} else {
+		slog.Info("cache set", "at", "inventory", "key", cacheKey, "value", cacheVal)
 	}
 
 	err = store.InsertStockLog(
@@ -130,9 +133,12 @@ func FetchInventory(
 		threshold = int(inv.AlertThreshold)
 	}
 
-	err := c.Set(ctx, cacheKey, fmt.Sprintf("%d,%d", stock, threshold), 0)
+	cacheVal := fmt.Sprintf("%d,%d", stock, threshold)
+	err := c.Set(ctx, cacheKey, cacheVal, 0)
 	if err != nil {
 		slog.Error("cache set err", "at", "inventory", "err", err)
+	} else {
+		slog.Info("cache set", "at", "inventory", "key", cacheKey, "value", cacheVal)
 	}
 
 	return stock, nil
